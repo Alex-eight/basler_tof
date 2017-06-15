@@ -421,22 +421,47 @@ int main(int argc, char* argv[])
     f = boost::bind(&update_config, _1, _2);
     dynamic_reconfigure_server.setCallback(f);
 
+    const size_t nBuffers = 3;  // Number of buffers to be used for grabbing.
+
+    // Allocate the memory buffers and prepare image acquisition.
+    camera_.PrepareAcquisition( nBuffers );
+
+    // Enqueue all buffers to be filled with image data.
+    for ( size_t i = 0; i < nBuffers; ++i )
+    {
+        camera_.QueueBuffer( i );
+    }
+
+    // Start the acquisition engine.
+    camera_.StartAcquisition();
+    camera_.IssueAcquisitionStartCommand(); // The camera continuously sends data now.
+
+
     while (ros::ok())
     {
       ros::spinOnce();
 
-      // Acquire one single image
-      BufferParts parts;
-      GrabResultPtr ptrGrabResult = camera_.GrabSingleImage(1000, &parts);
+      GrabResult grabResult;
+
+      // Get next acquired frame frome the driver's output queue.
+      camera_.GetGrabResult( grabResult, 1000 );
 
       // Save 3D data
-      if (ptrGrabResult->status == GrabResult::Ok)
+      if (grabResult.status == GrabResult::Ok)
       {
+        BufferParts parts;
+        camera_.GetBufferParts( grabResult, parts);
         publish(parts, ros::Time::now());
       }
       else
       {
         ROS_ERROR("Failed to grab an image.");
+      }
+
+      // Requeue the buffer to the buffer's input queue.
+      if (grabResult.status != GrabResult::Timeout)
+      {
+        camera_.QueueBuffer( grabResult.hBuffer );
       }
     }
 
