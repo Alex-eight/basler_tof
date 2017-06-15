@@ -225,39 +225,77 @@ void round_to_increment_double(double &param, double increment)
 void update_config(basler_tof::BaslerToFConfig &new_config, uint32_t level)
 {
   // round to increments
-  round_to_increment_int(new_config.exposure_time, 100);
+  round_to_increment_int(new_config.exposure_time_0, 100);
+  round_to_increment_int(new_config.exposure_time_1, 100);
   round_to_increment_double(new_config.exposure_agility, 0.1);
   round_to_increment_int(new_config.confidence_threshold, 16);
   round_to_increment_int(new_config.temporal_strength, 5);
   round_to_increment_int(new_config.outlier_tolerance, 16);
 
-  CFloatPtr(camera_.GetParameter("AcquisitionFrameRate"))->SetValue(new_config.frame_rate);
-
-  if (new_config.exposure_auto)
+  try
   {
-    CEnumerationPtr(camera_.GetParameter("ExposureAuto"))->FromString("Continuous");
+    // Configure Processing Mode. Must be done before configuring the exposure time(s) and acquisition rate.
+    CValuePtr (camera_.GetParameter("ProcessingMode"))->FromString(new_config.processing_mode.c_str());
 
-    // Agility and Delay are only valid when exposure_auto is "true"
-    CFloatPtr(camera_.GetParameter("Agility"))->SetValue(new_config.exposure_agility);
-    CIntegerPtr(camera_.GetParameter("Delay"))->SetValue(new_config.exposure_delay);
+    CFloatPtr(camera_.GetParameter("AcquisitionFrameRate"))->SetValue(new_config.frame_rate);
+
+    // Auto exposure can be only activated in standard processing mode.
+    if (new_config.exposure_auto && new_config.processing_mode.compare("Hdr") != 0)
+    {
+      CEnumerationPtr(camera_.GetParameter("ExposureAuto"))->FromString("Continuous");
+
+      // Agility and Delay are only valid when exposure_auto is "true"
+      CFloatPtr(camera_.GetParameter("Agility"))->SetValue(new_config.exposure_agility);
+      CIntegerPtr(camera_.GetParameter("Delay"))->SetValue(new_config.exposure_delay);
+    }
+    else
+    {
+      CEnumerationPtr(camera_.GetParameter("ExposureAuto"))->FromString("Off");
+
+      // ExposureTime is only valid when exposure_auto is "false"
+
+      // Set first exposure time
+      CIntegerPtr ptrExposureTimeSelector(camera_.GetParameter("ExposureTimeSelector"));
+      CFloatPtr ptrExposureTime(camera_.GetParameter("ExposureTime"));
+      if (ptrExposureTimeSelector.IsValid() )
+      {
+        ptrExposureTimeSelector->SetValue(0);
+      }
+      ptrExposureTime->SetValue(new_config.exposure_time_0);
+
+      // The second exposure time is only valid when in HDR mode
+      if ( new_config.processing_mode.compare("Hdr") == 0 )
+      {
+        // select 2nd exposure time
+        ptrExposureTimeSelector->SetValue(1);
+        // set the 2nd exposure time
+        ptrExposureTime->SetValue( new_config.exposure_time_1);
+      }
+    }
+
+    CIntegerPtr(camera_.GetParameter("ConfidenceThreshold"))->SetValue(new_config.confidence_threshold);
+    CBooleanPtr(camera_.GetParameter("FilterSpatial"))->SetValue(new_config.spatial_filter);
+    CBooleanPtr(camera_.GetParameter("FilterTemporal"))->SetValue(new_config.temporal_filter);
+    CIntegerPtr(camera_.GetParameter("FilterStrength"))->SetValue(new_config.temporal_strength);
+    CIntegerPtr(camera_.GetParameter("OutlierTolerance"))->SetValue(new_config.outlier_tolerance);
   }
-  else
+  catch (const GenICam::GenericException& e)
   {
-    CEnumerationPtr(camera_.GetParameter("ExposureAuto"))->FromString("Off");
-
-    // ExposureTime is only valid when exposure_auto is "false"
-    CFloatPtr(camera_.GetParameter("ExposureTime"))->SetValue(new_config.exposure_time);
+    ROS_ERROR_STREAM("Exception occurred in update_config: " << endl << e.GetDescription());
   }
-
-  CIntegerPtr(camera_.GetParameter("ConfidenceThreshold"))->SetValue(new_config.confidence_threshold);
-  CBooleanPtr(camera_.GetParameter("FilterSpatial"))->SetValue(new_config.spatial_filter);
-  CBooleanPtr(camera_.GetParameter("FilterTemporal"))->SetValue(new_config.temporal_filter);
-  CIntegerPtr(camera_.GetParameter("FilterStrength"))->SetValue(new_config.temporal_strength);
-  CIntegerPtr(camera_.GetParameter("OutlierTolerance"))->SetValue(new_config.outlier_tolerance);
+  catch (const std::exception& e)
+  {
+    ROS_ERROR_STREAM("Exception occurred in update_config: " << endl << e.what());
+  }
+  catch ( ... )
+  {
+    ROS_ERROR("Unknown exception occurred in update_config.");
+  }
 }
 
 int main(int argc, char* argv[])
 {
+  //getchar();
   ros::init(argc, argv, "basler_tof_node");
   ros::NodeHandle n;
   ros::NodeHandle pn("~");
@@ -405,9 +443,17 @@ int main(int argc, char* argv[])
     camera_.Close();
     exitCode = EXIT_SUCCESS;
   }
-  catch (GenICam::GenericException& e)
+  catch (const GenICam::GenericException& e)
   {
     ROS_ERROR_STREAM("Exception occurred: " << endl << e.GetDescription());
+  }
+  catch (const std::exception& e)
+  {
+    ROS_ERROR_STREAM("Exception occurred: " << endl << e.what());
+  }
+  catch ( ... )
+  {
+    ROS_ERROR("Unknown exception occurred.");
   }
 
   if (CToFCamera::IsProducerInitialized())
