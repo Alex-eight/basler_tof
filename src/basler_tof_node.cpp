@@ -229,13 +229,29 @@ void update_config(basler_tof::BaslerToFConfig &new_config, uint32_t level)
   round_to_increment_int(new_config.exposure_time_1, 100);
   round_to_increment_double(new_config.exposure_agility, 0.1);
   round_to_increment_int(new_config.confidence_threshold, 16);
-  round_to_increment_int(new_config.temporal_strength, 5);
   round_to_increment_int(new_config.outlier_tolerance, 16);
 
   try
   {
     // Configure Processing Mode. Must be done before configuring the exposure time(s) and acquisition rate.
     CValuePtr (camera_.GetParameter("ProcessingMode"))->FromString(new_config.processing_mode.c_str());
+
+    // Enable/disable binning
+    CBooleanPtr(camera_.GetParameter("Binning"))->SetValue(new_config.binning);
+
+    // Set the device channel
+    CIntegerPtr(camera_.GetParameter("DeviceChannel"))->SetValue(new_config.device_channel);
+
+    // Rectification
+    CValuePtr(camera_.GetParameter("Rectification"))->FromString(new_config.rectification.c_str());
+
+    // Calibration range offset
+    CIntegerPtr(camera_.GetParameter("DeviceCalibOffset"))->SetValue(new_config.calibration_range_offset);
+
+    // Depth range
+    CIntegerPtr(camera_.GetParameter("DepthMin"))->SetValue(new_config.minimum_depth);
+    CIntegerPtr(camera_.GetParameter("DepthMax"))->SetValue(new_config.maximum_depth);
+
 
     CFloatPtr(camera_.GetParameter("AcquisitionFrameRate"))->SetValue(new_config.frame_rate);
 
@@ -277,6 +293,11 @@ void update_config(basler_tof::BaslerToFConfig &new_config, uint32_t level)
     CBooleanPtr(camera_.GetParameter("FilterSpatial"))->SetValue(new_config.spatial_filter);
     CBooleanPtr(camera_.GetParameter("FilterTemporal"))->SetValue(new_config.temporal_filter);
     CIntegerPtr(camera_.GetParameter("FilterStrength"))->SetValue(new_config.temporal_strength);
+    // the range filter must not be set when the spatial filter is disabled
+    if ( new_config.spatial_filter)
+    {
+      CBooleanPtr(camera_.GetParameter("FilterRange"))->SetValue(new_config.range_filter);
+    }
     CIntegerPtr(camera_.GetParameter("OutlierTolerance"))->SetValue(new_config.outlier_tolerance);
   }
   catch (const GenICam::GenericException& e)
