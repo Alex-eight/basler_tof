@@ -212,93 +212,224 @@ bool publish(const BufferParts& parts, ros::Time acquisition_time)
   return true;
 }
 
-void round_to_increment_int(int &param, int increment)
+template <typename T>
+void round_to_increment(T &param, T min, T inc)
 {
-  param = ((param + increment / 2) / increment) * increment;
+  // Allowed value must follow value ==  min + n * inc, n integer.
+  param = min + ( (int) (( param - min ) / inc )) * inc;
 }
 
-void round_to_increment_double(double &param, double increment)
+template <class T>
+bool get_and_check_parameter(const char* name, const char* type, T& ptrParameter)
 {
-  param = (int)((param + increment / 2) / increment) * increment;
+  CValuePtr ptrGenericParameter = camera_.GetParameter(name);
+  if ( ! ptrGenericParameter.IsValid() )
+  {
+    ROS_WARN_STREAM("Device doesn't support a " << "name" << " parameter.");
+    return false;
+  }
+
+  ptrParameter = ptrGenericParameter; // casts CValuePtr to T
+  if ( ! ptrParameter.IsValid() )
+  {
+    // parameter is supported, but wrong type
+    ROS_WARN_STREAM("Parameter " << name << "is not of type " << type);
+    return false;
+  }
+
+  if ( ! GenApi::IsAvailable(ptrGenericParameter ) )
+  {
+    ROS_WARN_STREAM("The current state of the device doesn't allow to access the " << name << " parameter.");
+    return false;
+  }
+  if ( ! GenApi::IsWritable(ptrGenericParameter) )
+  {
+    ROS_WARN_STREAM("The " << name << " parameter is read-only.");
+    return false;
+  }
+  return true;
+}
+
+template<class T, class Ptr>
+void set_value( const char* name, const char* type, T& value)
+{
+  try
+  {
+    Ptr ptrParameter;
+    if ( ! get_and_check_parameter(name, type, ptrParameter) )
+    {
+      // parameter not supported by the device or not writable
+      return;
+    }
+
+    // Clip value to boundaries and adjust it according the parameters increments.
+    const T min = static_cast<T>(ptrParameter->GetMin());
+    const T max = static_cast<T>(ptrParameter->GetMax());
+    if ( value < min )
+    {
+      ROS_INFO_STREAM("Desired value of " << value << " is smaller than the current minimum value of the "
+                       << name << " parameter (" << min << "). Value will be clipped." );
+      value = min;
+    }
+    else if ( value > max )
+    {
+      ROS_INFO_STREAM("Desired value of " << value << " is greater than the current maximum value of the "
+                       << name << " parameter (" << max << "). Value will be clipped." );
+      value = max;
+    }
+    const T inc = static_cast<int>(ptrParameter->GetInc());
+    if ( inc != 1 )
+    {
+      round_to_increment(value, min, inc);
+    }
+    ptrParameter->SetValue(value);
+  }
+  catch (const GenICam::GenericException& e)
+  {
+    ROS_ERROR_STREAM("Exception occurred in set_value: " << e.GetDescription());
+  }
+  catch (const std::exception& e)
+  {
+    ROS_ERROR_STREAM("Exception occurred in set_value: " << e.what());
+  }
+  catch ( ... )
+  {
+    ROS_ERROR("Unknown exception occurred in set_value.");
+  }
+}
+
+void set_value_int(const char* name, int& value)
+{
+  set_value<int, CIntegerPtr>(name, "integer", value);
+}
+
+void set_value_double( const char* name, double& value)
+{
+  set_value<double, CFloatPtr>(name, "double", value);
+}
+
+void set_value_boolean( const char* name, bool& value)
+{
+  try
+  {
+    CBooleanPtr ptrParameter;
+    if ( ! get_and_check_parameter(name, "boolean", ptrParameter) )
+    {
+      // parameter not supported by the device or not writable
+      return;
+    }
+    ptrParameter->SetValue(value);
+  }
+  catch (const GenICam::GenericException& e)
+  {
+    ROS_ERROR_STREAM("Exception occurred in set_value: " << e.GetDescription());
+  }
+  catch (const std::exception& e)
+  {
+    ROS_ERROR_STREAM("Exception occurred in set_value: " << e.what());
+  }
+  catch ( ... )
+  {
+    ROS_ERROR("Unknown exception occurred in set_value.");
+  }
+}
+
+void set_value_enum( const char* name, std::string& value)
+{
+  try
+  {
+    CValuePtr ptrParameter;
+    if ( ! get_and_check_parameter(name, "enum", ptrParameter) )
+    {
+      // parameter not supported by the device or not writable
+      return;
+    }
+    ptrParameter->FromString(value.c_str());
+  }
+  catch (const GenICam::GenericException& e)
+  {
+    ROS_ERROR_STREAM("Exception occurred in set_value: " << e.GetDescription());
+  }
+  catch (const std::exception& e)
+  {
+    ROS_ERROR_STREAM("Exception occurred in set_value: " << e.what());
+  }
+  catch ( ... )
+  {
+    ROS_ERROR("Unknown exception occurred in set_value.");
+  }
 }
 
 void update_config(basler_tof::BaslerToFConfig &new_config, uint32_t level)
 {
-  // round to increments
-  round_to_increment_int(new_config.exposure_time_0, 100);
-  round_to_increment_int(new_config.exposure_time_1, 100);
-  round_to_increment_double(new_config.exposure_agility, 0.1);
-  round_to_increment_int(new_config.confidence_threshold, 16);
-  round_to_increment_int(new_config.outlier_tolerance, 16);
 
   try
   {
-    // Configure Processing Mode. Must be done before configuring the exposure time(s) and acquisition rate.
-    CValuePtr (camera_.GetParameter("ProcessingMode"))->FromString(new_config.processing_mode.c_str());
+    // Configuration of Processing Mode must be done before configuring the exposure time(s) and acquisition rate.
+    set_value_enum("ProcessingMode", new_config.processing_mode);
 
-    // Enable/disable binning
-    CBooleanPtr(camera_.GetParameter("Binning"))->SetValue(new_config.binning);
+    set_value_boolean("Binning", new_config.binning);
+    set_value_int("DeviceChannel", new_config.device_channel);
+    set_value_enum("Rectification", new_config.rectification);
+    set_value_int("DeviceCalibOffset", new_config.calibration_range_offset);
+    set_value_int("DepthMin", new_config.minimum_depth);
+    set_value_int("DepthMax", new_config.maximum_depth);
 
-    // Set the device channel
-    CIntegerPtr(camera_.GetParameter("DeviceChannel"))->SetValue(new_config.device_channel);
-
-    // Rectification
-    CValuePtr(camera_.GetParameter("Rectification"))->FromString(new_config.rectification.c_str());
-
-    // Calibration range offset
-    CIntegerPtr(camera_.GetParameter("DeviceCalibOffset"))->SetValue(new_config.calibration_range_offset);
-
-    // Depth range
-    CIntegerPtr(camera_.GetParameter("DepthMin"))->SetValue(new_config.minimum_depth);
-    CIntegerPtr(camera_.GetParameter("DepthMax"))->SetValue(new_config.maximum_depth);
-
-
-    CFloatPtr(camera_.GetParameter("AcquisitionFrameRate"))->SetValue(new_config.frame_rate);
+    double val = new_config.frame_rate;
+    set_value_double("AcquisitionFrameRate", val);
+    new_config.frame_rate = val;
 
     // Auto exposure can be only activated in standard processing mode.
+    // ExposureTime is only valid when exposure_auto is "false".
     if (new_config.exposure_auto && new_config.processing_mode.compare("Hdr") != 0)
     {
-      CEnumerationPtr(camera_.GetParameter("ExposureAuto"))->FromString("Continuous");
+      std::string val = "Continuous";
+      set_value_enum("ExposureAuto", val);
 
       // Agility and Delay are only valid when exposure_auto is "true"
-      CFloatPtr(camera_.GetParameter("Agility"))->SetValue(new_config.exposure_agility);
-      CIntegerPtr(camera_.GetParameter("Delay"))->SetValue(new_config.exposure_delay);
+      set_value_double("Agility",new_config.exposure_agility);
+      set_value_int("Delay", new_config.exposure_delay);
     }
     else
     {
-      CEnumerationPtr(camera_.GetParameter("ExposureAuto"))->FromString("Off");
-
-      // ExposureTime is only valid when exposure_auto is "false"
+      new_config.exposure_auto = false;
+      std::string str_val = "Off";
+      set_value_enum("ExposureAuto", str_val);
 
       // Set first exposure time
       CIntegerPtr ptrExposureTimeSelector(camera_.GetParameter("ExposureTimeSelector"));
-      CFloatPtr ptrExposureTime(camera_.GetParameter("ExposureTime"));
-      if (ptrExposureTimeSelector.IsValid() )
+      if (ptrExposureTimeSelector.IsValid() && GenApi::IsWritable(ptrExposureTimeSelector) )
       {
         ptrExposureTimeSelector->SetValue(0);
       }
-      ptrExposureTime->SetValue(new_config.exposure_time_0);
+
+      double d_val = new_config.exposure_time_0;
+      set_value_double("ExposureTime", d_val);
+      new_config.exposure_time_0 = d_val;
 
       // The second exposure time is only valid when in HDR mode
-      if ( new_config.processing_mode.compare("Hdr") == 0 )
+      if ( new_config.processing_mode.compare("Hdr") == 0 && ptrExposureTimeSelector.IsValid() && GenApi::IsWritable(ptrExposureTimeSelector) )
       {
         // select 2nd exposure time
         ptrExposureTimeSelector->SetValue(1);
         // set the 2nd exposure time
-        ptrExposureTime->SetValue( new_config.exposure_time_1);
+        d_val = new_config.exposure_time_1;
+        set_value_double("ExposureTime", d_val);
+        new_config.exposure_time_1 = d_val;
       }
     }
 
-    CIntegerPtr(camera_.GetParameter("ConfidenceThreshold"))->SetValue(new_config.confidence_threshold);
-    CBooleanPtr(camera_.GetParameter("FilterSpatial"))->SetValue(new_config.spatial_filter);
-    CBooleanPtr(camera_.GetParameter("FilterTemporal"))->SetValue(new_config.temporal_filter);
-    CIntegerPtr(camera_.GetParameter("FilterStrength"))->SetValue(new_config.temporal_strength);
-    // the range filter must not be set when the spatial filter is disabled
+    set_value_int("ConfidenceThreshold", new_config.confidence_threshold);
+    set_value_boolean("FilterSpatial", new_config.spatial_filter);
+    set_value_boolean("FilterTemporal", new_config.temporal_filter);
+    set_value_int("FilterStrength", new_config.temporal_strength);
+
+    // the range filter must not be enabled when the spatial filter is disabled
     if ( new_config.spatial_filter)
     {
-      CBooleanPtr(camera_.GetParameter("FilterRange"))->SetValue(new_config.range_filter);
+      set_value_boolean("FilterRange", new_config.range_filter);
     }
-    CIntegerPtr(camera_.GetParameter("OutlierTolerance"))->SetValue(new_config.outlier_tolerance);
+    set_value_int("OutlierTolerance", new_config.outlier_tolerance);
   }
   catch (const GenICam::GenericException& e)
   {
@@ -316,7 +447,6 @@ void update_config(basler_tof::BaslerToFConfig &new_config, uint32_t level)
 
 int main(int argc, char* argv[])
 {
-  //getchar();
   ros::init(argc, argv, "basler_tof_node");
   ros::NodeHandle n;
   ros::NodeHandle pn("~");
