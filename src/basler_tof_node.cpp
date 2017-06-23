@@ -93,92 +93,105 @@ bool publish(const BufferParts& parts, ros::Time acquisition_time)
   }
 
   // ----- publish point cloud
-  const size_t nPixel = parts[0].width * parts[0].height;
 
-  pcl::PointCloud<pcl::PointXYZI>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZI>());
-  cloud->header.frame_id = frame_id_;
-  cloud->header.stamp = pcl_conversions::toPCL(acquisition_time);
-  cloud->width = parts[0].width;
-  cloud->height = parts[0].height;
-  cloud->is_dense = false;
-  cloud->points.resize(nPixel);
-
-  CToFCamera::Coord3D *pPoint = static_cast<CToFCamera::Coord3D*>(parts[0].pData);
-  uint16_t *pIntensity = static_cast<uint16_t*>(parts[1].pData);
-
-  for (size_t i = 0; i < nPixel; ++i)
+  if ( cloud_pub_.getNumSubscribers() > 0 )
   {
-    pcl::PointXYZI &p = cloud->points[i];
-    if (pPoint->IsValid())
-    {
-      p.x = 0.001f * pPoint->x;
-      p.y = 0.001f * pPoint->y;
-      p.z = 0.001f * pPoint->z;
-      p.intensity = *pIntensity;
-    }
-    else
-    {
-      p.x = std::numeric_limits<float>::quiet_NaN();
-      p.y = std::numeric_limits<float>::quiet_NaN();
-      p.z = std::numeric_limits<float>::quiet_NaN();
-    }
-    pPoint++;
-    pIntensity++;
-  }
+    const size_t nPixel = parts[0].width * parts[0].height;
 
-  cloud_pub_.publish(cloud);
+    pcl::PointCloud<pcl::PointXYZI>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZI>());
+    cloud->header.frame_id = frame_id_;
+    cloud->header.stamp = pcl_conversions::toPCL(acquisition_time);
+    cloud->width = parts[0].width;
+    cloud->height = parts[0].height;
+    cloud->is_dense = false;
+    cloud->points.resize(nPixel);
+
+    CToFCamera::Coord3D *pPoint = static_cast<CToFCamera::Coord3D*>(parts[0].pData);
+    uint16_t *pIntensity = static_cast<uint16_t*>(parts[1].pData);
+
+    for (size_t i = 0; i < nPixel; ++i)
+    {
+      pcl::PointXYZI &p = cloud->points[i];
+      if (pPoint->IsValid())
+      {
+        p.x = 0.001f * pPoint->x;
+        p.y = 0.001f * pPoint->y;
+        p.z = 0.001f * pPoint->z;
+        p.intensity = *pIntensity;
+      }
+      else
+      {
+        p.x = std::numeric_limits<float>::quiet_NaN();
+        p.y = std::numeric_limits<float>::quiet_NaN();
+        p.z = std::numeric_limits<float>::quiet_NaN();
+      }
+      pPoint++;
+      pIntensity++;
+    }
+
+    cloud_pub_.publish(cloud);
+  }
 
   // ----- publish intensity image
-  cv_bridge::CvImage intensity_cvimg;
-  intensity_cvimg.encoding = sensor_msgs::image_encodings::MONO16;
-  intensity_cvimg.header.frame_id = frame_id_;
-  intensity_cvimg.header.stamp = acquisition_time;
-  intensity_cvimg.image = cv::Mat(parts[1].height, parts[1].width, CV_16UC1, parts[1].pData).clone();
-
-  // uncomment these two lines for cameracalibrator.py
-  // intensity_cvimg.image.convertTo(intensity_cvimg.image, CV_8U, 1.0 / 256.0);
-  // intensity_cvimg.encoding = sensor_msgs::image_encodings::MONO8;
-
-  intensity_pub_.publish(intensity_cvimg.toImageMsg());
-
-  sensor_msgs::CameraInfoPtr intensity_info_msg(new sensor_msgs::CameraInfo(intensity_info_manager_->getCameraInfo()));
-  intensity_info_msg->header.stamp    = acquisition_time;
-  intensity_info_msg->header.frame_id = frame_id_;
-  intensity_ci_pub_.publish(intensity_info_msg);
-
-  // ----- publish confidence image
-  cv_bridge::CvImage confidence_cvimg;
-  confidence_cvimg.encoding = sensor_msgs::image_encodings::MONO16;
-  confidence_cvimg.header.frame_id = frame_id_;
-  confidence_cvimg.header.stamp = acquisition_time;
-  confidence_cvimg.image = cv::Mat(parts[2].height, parts[2].width, CV_16UC1, parts[2].pData).clone();
-  confidence_pub_.publish(confidence_cvimg.toImageMsg());
-
-  sensor_msgs::CameraInfoPtr confidence_info_msg(new sensor_msgs::CameraInfo(confidence_info_manager_->getCameraInfo()));
-  confidence_info_msg->header.stamp    = acquisition_time;
-  confidence_info_msg->header.frame_id = frame_id_;
-  confidence_ci_pub_.publish(confidence_info_msg);
-
-  // ----- publish depth image
-  pPoint = static_cast<CToFCamera::Coord3D*>(parts[0].pData);
-
-  cv_bridge::CvImage depth_cvimg;
-  depth_cvimg.encoding = sensor_msgs::image_encodings::TYPE_16UC1;
-  depth_cvimg.header.frame_id = frame_id_;
-  depth_cvimg.header.stamp = acquisition_time;
-  depth_cvimg.image = cv::Mat(parts[0].height, parts[0].width, CV_16UC1);
-  depth_cvimg.image.setTo(0);
-
-  for (size_t i = 0; i < parts[0].height; i++)
+  if ( intensity_pub_.getNumSubscribers() > 0 )
   {
-    for (size_t j = 0; j < parts[0].width; j++)
-    {
-      depth_cvimg.image.at<uint16_t>(i, j) = static_cast<uint16_t>(pPoint->z);   // can be NaN; should be in mm
-      pPoint++;
-    }
+    cv_bridge::CvImage intensity_cvimg;
+    intensity_cvimg.encoding = sensor_msgs::image_encodings::MONO16;
+    intensity_cvimg.header.frame_id = frame_id_;
+    intensity_cvimg.header.stamp = acquisition_time;
+    intensity_cvimg.image = cv::Mat(parts[1].height, parts[1].width, CV_16UC1, parts[1].pData).clone();
+
+    // uncomment these two lines for cameracalibrator.py
+    // intensity_cvimg.image.convertTo(intensity_cvimg.image, CV_8U, 1.0 / 256.0);
+    // intensity_cvimg.encoding = sensor_msgs::image_encodings::MONO8;
+
+    intensity_pub_.publish(intensity_cvimg.toImageMsg());
+
+    sensor_msgs::CameraInfoPtr intensity_info_msg(new sensor_msgs::CameraInfo(intensity_info_manager_->getCameraInfo()));
+    intensity_info_msg->header.stamp    = acquisition_time;
+    intensity_info_msg->header.frame_id = frame_id_;
+    intensity_ci_pub_.publish(intensity_info_msg);
   }
 
-  depth_pub_.publish(depth_cvimg.toImageMsg());
+  // ----- publish confidence image
+  if ( confidence_pub_.getNumSubscribers() > 0 )
+  {
+    cv_bridge::CvImage confidence_cvimg;
+    confidence_cvimg.encoding = sensor_msgs::image_encodings::MONO16;
+    confidence_cvimg.header.frame_id = frame_id_;
+    confidence_cvimg.header.stamp = acquisition_time;
+    confidence_cvimg.image = cv::Mat(parts[2].height, parts[2].width, CV_16UC1, parts[2].pData).clone();
+    confidence_pub_.publish(confidence_cvimg.toImageMsg());
+
+    sensor_msgs::CameraInfoPtr confidence_info_msg(new sensor_msgs::CameraInfo(confidence_info_manager_->getCameraInfo()));
+    confidence_info_msg->header.stamp    = acquisition_time;
+    confidence_info_msg->header.frame_id = frame_id_;
+    confidence_ci_pub_.publish(confidence_info_msg);
+  }
+
+  // ----- publish depth image
+  if ( depth_pub_.getNumSubscribers() > 0 )
+  {
+    CToFCamera::Coord3D *pPoint = static_cast<CToFCamera::Coord3D*>(parts[0].pData);
+
+    cv_bridge::CvImage depth_cvimg;
+    depth_cvimg.encoding = sensor_msgs::image_encodings::TYPE_16UC1;
+    depth_cvimg.header.frame_id = frame_id_;
+    depth_cvimg.header.stamp = acquisition_time;
+    depth_cvimg.image = cv::Mat(parts[0].height, parts[0].width, CV_16UC1);
+    depth_cvimg.image.setTo(0);
+
+    for (size_t i = 0; i < parts[0].height; i++)
+    {
+      for (size_t j = 0; j < parts[0].width; j++)
+      {
+        depth_cvimg.image.at<uint16_t>(i, j) = static_cast<uint16_t>(pPoint->z);   // can be NaN; should be in mm
+        pPoint++;
+      }
+    }
+
+    depth_pub_.publish(depth_cvimg.toImageMsg());
+  }
 
   sensor_msgs::CameraInfoPtr depth_info_msg(new sensor_msgs::CameraInfo(depth_info_manager_->getCameraInfo()));
   depth_info_msg->header.stamp    = acquisition_time;
