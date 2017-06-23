@@ -129,23 +129,12 @@ bool publish(const BufferParts& parts, ros::Time acquisition_time)
   cloud_pub_.publish(cloud);
 
   // ----- publish intensity image
-  pIntensity = static_cast<uint16_t*>(parts[1].pData);
-
   cv_bridge::CvImage intensity_cvimg;
   intensity_cvimg.encoding = sensor_msgs::image_encodings::MONO16;
   intensity_cvimg.header.frame_id = frame_id_;
   intensity_cvimg.header.stamp = acquisition_time;
-  intensity_cvimg.image = cv::Mat(parts[1].height, parts[1].width, CV_16UC1);
-  intensity_cvimg.image.setTo(0);
+  intensity_cvimg.image = cv::Mat(parts[1].height, parts[1].width, CV_16UC1, parts[1].pData).clone();
 
-  for (size_t i = 0; i < parts[1].height; i++)
-  {
-    for (size_t j = 0; j < parts[1].width; j++)
-    {
-      intensity_cvimg.image.at<unsigned short>(i, j) = static_cast<unsigned short>(*pIntensity);
-      pIntensity++;
-    }
-  }
   // uncomment these two lines for cameracalibrator.py
   // intensity_cvimg.image.convertTo(intensity_cvimg.image, CV_8U, 1.0 / 256.0);
   // intensity_cvimg.encoding = sensor_msgs::image_encodings::MONO8;
@@ -158,24 +147,11 @@ bool publish(const BufferParts& parts, ros::Time acquisition_time)
   intensity_ci_pub_.publish(intensity_info_msg);
 
   // ----- publish confidence image
-  uint16_t *pConfidence = static_cast<uint16_t*>(parts[2].pData);
-
   cv_bridge::CvImage confidence_cvimg;
   confidence_cvimg.encoding = sensor_msgs::image_encodings::MONO16;
   confidence_cvimg.header.frame_id = frame_id_;
   confidence_cvimg.header.stamp = acquisition_time;
-  confidence_cvimg.image = cv::Mat(parts[2].height, parts[2].width, CV_16UC1);
-  confidence_cvimg.image.setTo(0);
-
-  for (size_t i = 0; i < parts[2].height; i++)
-  {
-    for (size_t j = 0; j < parts[2].width; j++)
-    {
-      confidence_cvimg.image.at<unsigned short>(i, j) = static_cast<unsigned short>(*pConfidence);
-      pConfidence++;
-    }
-  }
-
+  confidence_cvimg.image = cv::Mat(parts[2].height, parts[2].width, CV_16UC1, parts[2].pData).clone();
   confidence_pub_.publish(confidence_cvimg.toImageMsg());
 
   sensor_msgs::CameraInfoPtr confidence_info_msg(new sensor_msgs::CameraInfo(confidence_info_manager_->getCameraInfo()));
