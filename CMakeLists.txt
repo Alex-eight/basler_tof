@@ -15,7 +15,7 @@ find_package(catkin REQUIRED COMPONENTS
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${PROJECT_SOURCE_DIR}/cmake/Modules)
 find_package(GenTL REQUIRED)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=gnu++11 -march=native -Wl,--enable-new-dtags -Wl,-rpath,${GENTL_LIBRARY_DIR}")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=gnu++11 -march=native -Wl,--enable-new-dtags -Wl,-rpath,${GENTL_LIBRARY_DIR} -Wl,-rpath,${GENTL_LIBRARY_DIR}/gentlproducer/gtl")
 set(CMAKE_CXX_FLAGS_DEBUG "-g -Og")
 
 ################################################

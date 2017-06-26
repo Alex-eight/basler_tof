@@ -475,24 +475,7 @@ int main(int argc, char* argv[])
     }
     else
     {
-      CameraList cameraList = camera_.EnumerateCameras();
-      bool found = false;
-      for (CameraList::const_iterator it = cameraList.begin(); it != cameraList.end(); ++it)
-      {
-        ROS_INFO("Found camera device with serial: %s", it->strSerialNumber.c_str());
-        if (it->strSerialNumber == device_id_)
-        {
-          ROS_INFO("Serial matches device_id, opening camera.");
-          found = true;
-          camera_.Open(*it);
-          break;
-        }
-      }
-      if (!found)
-      {
-        ROS_FATAL("No camera with device_id '%s' found, exiting!", device_id_.c_str());
-        return EXIT_FAILURE;
-      }
+      camera_.Open(SerialNumber, device_id_);
     }
 
     std::string camera_name_ = camera_.GetCameraInfo().strModelName
@@ -611,14 +594,17 @@ int main(int argc, char* argv[])
   catch (const GenICam::GenericException& e)
   {
     ROS_ERROR_STREAM("Exception occurred: " << endl << e.GetDescription());
+    exitCode = EXIT_FAILURE;
   }
   catch (const std::exception& e)
   {
     ROS_ERROR_STREAM("Exception occurred: " << endl << e.what());
+    exitCode = EXIT_FAILURE;
   }
   catch ( ... )
   {
     ROS_ERROR("Unknown exception occurred.");
+    exitCode = EXIT_FAILURE;
   }
 
   if (CToFCamera::IsProducerInitialized())
